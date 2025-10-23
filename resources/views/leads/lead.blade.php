@@ -49,13 +49,21 @@
     <div class="card-header">
         <h5 class="card-title mb-0">
             <i class="fa fa-users"></i> Leads Management
-            <span class="badge badge-info ml-2" id="totalRecords">Loading...</span>
+            <span class="badge badge-info ml-2" id="totalRecords">{{ count($leads ?? []) }} Leads Loaded</span>
+            <small class="text-muted">(Fetching all available data - may take time for large datasets)</small>
         </h5>
     </div>
     <div class="card-body">
         <div class="table-responsive-enhanced">
+            <div class="alert alert-info alert-dismissible fade show" role="alert">
+                <i class="fa fa-info-circle"></i>
+                <strong>All Lead Data:</strong> This page attempts to load all leads from the API. 
+                For large datasets (10,000+ leads), initial loading may take time. 
+                The system fetches data in batches and will display as much as possible.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
             <table class="table table-hover table-sm" id="leadsTable">
-        <caption>List of leads</caption>
+        <caption>List of all leads</caption>
         <form method="POST" class="form align-items-center" action="">
         <thead class="bg-dark report-white-font">
             <tr>
@@ -224,3 +232,33 @@
 </div>
 
 @endsection
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Update the total records count
+    const totalRecords = document.getElementById('totalRecords');
+    const tableRows = document.querySelectorAll('#leadsTable tbody tr');
+    const actualCount = tableRows.length;
+    
+    // Only count rows that are not the "no data" row
+    const noDataRow = document.querySelector('#leadsTable tbody tr td[colspan="14"]');
+    const finalCount = noDataRow ? 0 : actualCount;
+    
+    totalRecords.textContent = `${finalCount} Leads Loaded`;
+    
+    // Add loading indicator functionality for refresh button
+    const refreshButton = document.querySelector('.fa-arrows-rotate-reverse').parentElement;
+    if (refreshButton) {
+        refreshButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            totalRecords.textContent = 'Loading...';
+            totalRecords.className = 'badge badge-warning ml-2';
+            
+            // Reload the page
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        });
+    }
+});
+</script>

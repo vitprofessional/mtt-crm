@@ -19,84 +19,168 @@ class leadControl extends Controller
             'authorization' => env('API_AUTHORIZATION')
         ]);
 
-        $response = Http::withHeaders([
-            'Content-Type' => env('API_CONTENT_TYPE'),
-            'Authorization' => env('API_AUTHORIZATION'),
-        ])->get($fullUrl, [
-            'accountType' => 'LEAD'
-        ]);
-
-        if (!$response->successful()) {
-            \Log::error('Leads API Error:', [
-                'status' => $response->status(),
-                'response' => $response->body(),
-                'url' => $fullUrl
-            ]);
+        // Get ALL leads by handling pagination (no limits)
+        $allLeads = $this->getAllLeadsFromAPI($fullUrl);
+        
+        if (empty($allLeads)) {
+            \Log::error('No leads retrieved from API, using sample data');
             
             // Fallback to sample data for testing
             $leads = $this->getSampleLeads();
             return view('leads.lead', compact('leads'));
         }
 
-        $json = $response->json();
-
-        // Debug the API response structure
-        \Log::info('Leads API Response Structure:', [
-            'response' => $json,
-            'content_count' => count($json['content'] ?? [])
+        \Log::info('Final Leads Data:', [
+            'leads_count' => count($allLeads),
+            'first_lead' => $allLeads[0] ?? 'No leads found'
         ]);
 
-        // Many APIs return a paged list under "content"; fall back to root if not.
-        $items = $json['content'] ?? $json;
-        if (!is_array($items)) {
-            $items = [];
+        return view('leads.lead', ['leads' => $allLeads]);
+    }
+
+    private function getAllLeadsFromAPI($fullUrl) {
+        $allLeads = [];
+        $page = 0;
+        $size = 500; // Large page size for efficiency
+        $maxRetries = 3; // Retry failed requests
+        $hasMoreData = true;
+
+        \Log::info('Starting lead fetching with full pagination', [
+            'page_size' => $size,
+            'note' => 'Fetching ALL lead data as requested (no limits)',
+            'max_retries' => $maxRetries
+        ]);
+
+        while ($hasMoreData) {
+            $retryCount = 0;
+            $success = false;
+            
+            // Retry mechanism for failed requests
+            while ($retryCount < $maxRetries && !$success) {
+                try {
+                    $response = Http::timeout(60) // Increase timeout to 60 seconds
+                        ->withHeaders([
+                            'Content-Type' => env('API_CONTENT_TYPE'),
+                            'Authorization' => env('API_AUTHORIZATION'),
+                        ])->get($fullUrl, [
+                            'accountType' => 'LEAD',
+                            'page' => $page,
+                            'size' => $size
+                        ]);
+
+                    if ($response->successful()) {
+                        $success = true;
+                    } else {
+                        throw new \Exception("HTTP {$response->status()}: {$response->body()}");
+                    }
+                } catch (\Exception $e) {
+                    $retryCount++;
+                    \Log::warning("Leads API attempt {$retryCount} failed for page {$page}", [
+                        'error' => $e->getMessage(),
+                        'will_retry' => $retryCount < $maxRetries
+                    ]);
+                    
+                    if ($retryCount < $maxRetries) {
+                        sleep(2); // Wait 2 seconds before retry
+                    }
+                }
+            }
+
+            if (!$success) {
+                \Log::error('Leads API Error after all retries:', [
+                    'page' => $page,
+                    'total_retries' => $maxRetries,
+                    'total_fetched_so_far' => count($allLeads)
+                ]);
+                break; // Stop fetching but return what we have
+            }
+
+            $json = $response->json();
+            
+            // Debug the API response structure
+            \Log::info('Leads API Response Structure for page ' . $page, [
+                'total_elements' => $json['totalElements'] ?? 'unknown',
+                'total_pages' => $json['totalPages'] ?? 'unknown',
+                'current_page' => $page,
+                'content_count' => count($json['content'] ?? []),
+                'total_fetched_so_far' => count($allLeads)
+            ]);
+
+            // Many APIs return a paged list under "content"; fall back to root if not.
+            $items = $json['content'] ?? $json;
+            if (!is_array($items)) {
+                $items = [];
+            }
+
+            if (empty($items)) {
+                $hasMoreData = false;
+                break;
+            }
+
+            // Helper function to safely get string values
+            $safeString = function($value) {
+                if (is_array($value) || is_object($value)) {
+                    return json_encode($value);
+                }
+                return $value ? (string) $value : null;
+            };
+
+            // Map API response to match the lead data structure
+            $pageLeads = collect($items)->map(function ($i) use ($safeString) {
+                return [
+                    'uuid'           => $safeString(data_get($i, 'uuid')),
+                    'email'          => $safeString(data_get($i, 'email')),
+                    'firstName'      => $safeString(data_get($i, 'personalDetails.firstname')),
+                    'lastName'       => $safeString(data_get($i, 'personalDetails.lastname')),
+                    'created'        => $safeString(data_get($i, 'created')),
+                    'updated'        => $safeString(data_get($i, 'updated')),
+                    'verificationStatus' => $safeString(data_get($i, 'verificationStatus')),
+                    'type'           => $safeString(data_get($i, 'type')),
+                    'alreadyContacted' => data_get($i, 'contactDetails.toContact.alreadyContacted', false),
+                    'toContactDate'  => $safeString(data_get($i, 'contactDetails.toContact.toContactDate')),
+                    'phoneNumber'    => $safeString(data_get($i, 'contactDetails.phoneNumber')),
+                    'country'        => $safeString(data_get($i, 'addressDetails.country')),
+                    'city'           => $safeString(data_get($i, 'addressDetails.city')),
+                    'language'       => $safeString(data_get($i, 'personalDetails.language')),
+                    'leadStatus'     => $safeString(data_get($i, 'leadDetails.statusUuid')),
+                    'leadSource'     => $safeString(data_get($i, 'leadDetails.source')),
+                    'becomeActiveTime' => $safeString(data_get($i, 'leadDetails.becomeActiveClientTime')),
+                    'accountManager' => $safeString(data_get($i, 'accountConfiguration.accountManager.email')),
+                    'managerName'    => $safeString(data_get($i, 'accountConfiguration.accountManager.name')),
+                    'branchUuid'     => $safeString(data_get($i, 'accountConfiguration.branchUuid')),
+                    'roleUuid'       => $safeString(data_get($i, 'accountConfiguration.roleUuid')),
+                    'partnerId'      => $safeString(data_get($i, 'accountConfiguration.partnerId')),
+                    'citizenship'    => $safeString(data_get($i, 'personalDetails.citizenship')),
+                    'dateOfBirth'    => $safeString(data_get($i, 'personalDetails.dateOfBirth')),
+                    'maritalStatus'  => $safeString(data_get($i, 'personalDetails.maritalStatus')),
+                ];
+            })->all();
+
+            $allLeads = array_merge($allLeads, $pageLeads);
+
+            // Check if there are more pages
+            if (isset($json['totalPages']) && $page >= ($json['totalPages'] - 1)) {
+                $hasMoreData = false;
+            } elseif (count($items) < $size) {
+                // If we got fewer items than requested, we've reached the end
+                $hasMoreData = false;
+            } else {
+                $page++;
+            }
         }
 
-        // Helper function to safely get string values
-        $safeString = function($value) {
-            if (is_array($value) || is_object($value)) {
-                return json_encode($value);
-            }
-            return $value ? (string) $value : null;
-        };
-
-        // Map API response to match the lead data structure
-        $leads = collect($items)->map(function ($i) use ($safeString) {
-            return [
-                'uuid'           => $safeString(data_get($i, 'uuid')),
-                'email'          => $safeString(data_get($i, 'email')),
-                'firstName'      => $safeString(data_get($i, 'personalDetails.firstname')),
-                'lastName'       => $safeString(data_get($i, 'personalDetails.lastname')),
-                'created'        => $safeString(data_get($i, 'created')),
-                'updated'        => $safeString(data_get($i, 'updated')),
-                'verificationStatus' => $safeString(data_get($i, 'verificationStatus')),
-                'type'           => $safeString(data_get($i, 'type')),
-                'alreadyContacted' => data_get($i, 'contactDetails.toContact.alreadyContacted', false),
-                'toContactDate'  => $safeString(data_get($i, 'contactDetails.toContact.toContactDate')),
-                'phoneNumber'    => $safeString(data_get($i, 'contactDetails.phoneNumber')),
-                'country'        => $safeString(data_get($i, 'addressDetails.country')),
-                'city'           => $safeString(data_get($i, 'addressDetails.city')),
-                'language'       => $safeString(data_get($i, 'personalDetails.language')),
-                'leadStatus'     => $safeString(data_get($i, 'leadDetails.statusUuid')),
-                'leadSource'     => $safeString(data_get($i, 'leadDetails.source')),
-                'becomeActiveTime' => $safeString(data_get($i, 'leadDetails.becomeActiveClientTime')),
-                'accountManager' => $safeString(data_get($i, 'accountConfiguration.accountManager.email')),
-                'managerName'    => $safeString(data_get($i, 'accountConfiguration.accountManager.name')),
-                'branchUuid'     => $safeString(data_get($i, 'accountConfiguration.branchUuid')),
-                'roleUuid'       => $safeString(data_get($i, 'accountConfiguration.roleUuid')),
-                'partnerId'      => $safeString(data_get($i, 'accountConfiguration.partnerId')),
-                'citizenship'    => $safeString(data_get($i, 'personalDetails.citizenship')),
-                'dateOfBirth'    => $safeString(data_get($i, 'personalDetails.dateOfBirth')),
-                'maritalStatus'  => $safeString(data_get($i, 'personalDetails.maritalStatus')),
-            ];
-        })->all();
+        $totalExpected = isset($json['totalElements']) ? $json['totalElements'] : 'unknown';
+        $fetchedAll = isset($json['totalElements']) && count($allLeads) >= $json['totalElements'];
         
-        \Log::info('Final Leads Data:', [
-            'leads_count' => count($leads),
-            'first_lead' => $leads[0] ?? 'No leads found'
+        \Log::info('Lead fetching completed', [
+            'total_fetched' => count($allLeads),
+            'total_expected' => $totalExpected,
+            'pages_processed' => $page + 1,
+            'fetched_all_data' => $fetchedAll,
+            'note' => $fetchedAll ? 'ALL lead data retrieved successfully' : 'Partial data retrieved due to timeouts/errors'
         ]);
 
-        return view('leads.lead', compact('leads'));
+        return $allLeads;
     }
 
     private function getSampleLeads()
