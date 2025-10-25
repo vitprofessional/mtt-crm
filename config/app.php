@@ -123,4 +123,16 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | API Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for external API connections
+    |
+    */
+    'api_base_url' => env('API_BASE_URL'),
+    'api_authorization' => env('API_AUTHORIZATION'),
+    'api_content_type' => env('API_CONTENT_TYPE', 'application/json'),
+
 ];

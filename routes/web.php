@@ -186,7 +186,15 @@ Route::get('/add_deposit',[
     'uses'  => 'depositControl@depositadd',
     'as'    => 'depositadd'
 ]);
-Route::get('/deposit_detailes',[
+Route::post('/deposit/store',[
+    'uses'  => 'depositControl@store',
+    'as'    => 'depositStore'
+]);
+Route::post('/deposit/search',[
+    'uses'  => 'depositControl@search',
+    'as'    => 'depositSearch'
+]);
+Route::get('/deposit_detailes/{id?}',[
     'uses'  => 'depositControl@detailesDeposit',
     'as'    => 'detailesDeposit'
 ]);
@@ -194,6 +202,22 @@ Route::get('/deposit_detailes',[
 Route::get('/deposit-payment-gateway',[
     'uses'  => 'depositControl@DipoPaymentGte',
     'as'    => 'DipoPaymentGte'
+]);
+Route::get('/deposit/test-api',[
+    'uses'  => 'depositControl@testApi',
+    'as'    => 'testDepositApi'
+]);
+Route::post('/deposit/{id}/accept',[
+    'uses'  => 'depositControl@acceptDeposit',
+    'as'    => 'depositAccept'
+]);
+Route::post('/deposit/{id}/reject',[
+    'uses'  => 'depositControl@rejectDeposit',
+    'as'    => 'depositReject'
+]);
+Route::post('/deposit/{id}/status',[
+    'uses'  => 'depositControl@updateStatus',
+    'as'    => 'depositUpdateStatus'
 ]);
 
 
@@ -232,6 +256,35 @@ Route::get('/widthdraw-detailes',[
 Route::get('/widthdraw-payment-gateway',[
     'uses'  => 'widthdrawControll@widthdrawPaymentGet',
     'as'    => 'widthdrawPaymentGet'
+]);
+Route::post('/withdrawal/search',[
+    'uses'  => 'widthdrawControll@search',
+    'as'    => 'withdrawalSearch'
+]);
+Route::get('/withdrawal/test-api',[
+    'uses'  => 'widthdrawControll@testApi',
+    'as'    => 'testWithdrawalApi'
+]);
+Route::get('/test-table', function() {
+    return view('test-table');
+});
+Route::get('/withdrawal-debug', function() {
+    $apiService = new App\Services\MatchTraderApiService();
+    $apiResponse = $apiService->getWithdrawals();
+    $withdrawals = $apiResponse['success'] ? $apiResponse['data'] : collect();
+    return view('withdrawal-debug', compact('withdrawals'));
+});
+Route::post('/withdrawal/{id}/accept',[
+    'uses'  => 'widthdrawControll@acceptWithdrawal',
+    'as'    => 'withdrawalAccept'
+]);
+Route::post('/withdrawal/{id}/reject',[
+    'uses'  => 'widthdrawControll@rejectWithdrawal',
+    'as'    => 'withdrawalReject'
+]);
+Route::post('/withdrawal/{id}/status',[
+    'uses'  => 'widthdrawControll@updateStatus',
+    'as'    => 'withdrawalUpdateStatus'
 ]);
 
 //widthdraw End
