@@ -27,7 +27,7 @@ class MatchTraderApiService
             'Content-Type' => $this->contentType,
             'Authorization' => $this->authorization,
             'Accept' => 'application/json',
-        ])->timeout(30);
+        ])->timeout(90)->retry(3, 2000); // Increased timeout to 90s, 3 retries with 2s delay
     }
 
     /**
@@ -36,12 +36,14 @@ class MatchTraderApiService
     public function getDeposits($filters = [], $fetchAll = true)
     {
         try {
-            $url = $this->baseUrl . 'deposits';
+            // Use the working accounts endpoint like in leads
+            $url = $this->baseUrl . 'accounts';
             
             // Add query parameters for filtering and pagination
             $queryParams = [
-                'size' => 1000, // Request large page size to get more data at once
-                'page' => 0     // Start from first page
+                'accountType' => 'CLIENT', // Get client accounts that may have deposit data
+                'size' => 100, // Reduced from 1000 to 100 to prevent timeouts
+                'page' => 0    // Start from first page
             ];
             
             if (!empty($filters['search'])) {
@@ -247,7 +249,7 @@ class MatchTraderApiService
     {
         try {
             $allDeposits = [];
-            $url = $this->baseUrl . 'deposits';
+            $url = $this->baseUrl . 'accounts';
             
             // Start with first page data if provided
             if ($firstPageData && isset($firstPageData['content'])) {
@@ -257,10 +259,12 @@ class MatchTraderApiService
             $totalPages = $firstPageData['totalPages'] ?? 1;
             $maxPages = $totalPages; // Fetch all pages to get all data
             
-            // Fetch remaining pages
-            for ($page = 1; $page < $maxPages; $page++) {
+            // Fetch remaining pages (limit to first 10 pages to prevent excessive API calls)
+            $maxPagesToFetch = min($maxPages, 10);
+            for ($page = 1; $page < $maxPagesToFetch; $page++) {
                 $queryParams = [
-                    'size' => 1000,
+                    'accountType' => 'CLIENT',
+                    'size' => 100, // Reduced page size
                     'page' => $page
                 ];
                 
@@ -530,11 +534,12 @@ class MatchTraderApiService
         try {
             Log::info('Fetching withdrawals from API', ['filters' => $filters]);
 
-            // Set default page size for full data retrieval
-            $pageSize = 500;
+            // Set default page size for optimal performance
+            $pageSize = 100; // Reduced from 500 to 100
             $allWithdrawals = collect();
             $page = 0;
             $totalFetched = 0;
+            $maxPages = 10; // Limit total pages to prevent excessive API calls
 
             do {
                 $queryParams = array_merge([
@@ -577,7 +582,7 @@ class MatchTraderApiService
                 }
 
                 $page++;
-            } while ($page < 100); // Safety limit
+            } while ($page < $maxPages); // Reduced safety limit
 
             Log::info('Withdrawal fetching completed', [
                 'total_fetched' => $totalFetched,
